@@ -1,0 +1,2 @@
+[tools]
+"github:sevenc-nanashi/aviutl2-cli" = { version = "latest", bin = "au2.exe" }
