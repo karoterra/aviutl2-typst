@@ -1,26 +1,23 @@
 mod typst_text_plugin;
 mod typst_world;
 
-use aviutl2::{AnyResult, anyhow::anyhow, tracing};
+use std::path::Path;
+
+use aviutl2::{AnyResult, tracing};
 
 use crate::typst_text_plugin::TypstTextPlugin;
-use crate::typst_world::{TYPST_ENGINE, TypstEngine};
+use crate::typst_world::TYPST_ENGINE;
 
 #[aviutl2::plugin(GenericPlugin)]
 struct TypstPlugin {
     text_plugin: aviutl2::generic::SubPlugin<TypstTextPlugin>,
-    _engine: &'static TypstEngine,
 }
 
 impl aviutl2::generic::GenericPlugin for TypstPlugin {
     fn new(info: aviutl2::common::AviUtl2Info) -> AnyResult<Self> {
         Self::init_logging();
-        let engine = TYPST_ENGINE
-            .as_ref()
-            .ok_or_else(|| anyhow!("Failed to initialize TypstEngine"))?;
         Ok(Self {
             text_plugin: aviutl2::generic::SubPlugin::new_filter_plugin(&info)?,
-            _engine: engine,
         })
     }
 
@@ -37,6 +34,14 @@ impl aviutl2::generic::GenericPlugin for TypstPlugin {
     fn register(&mut self, registry: &mut aviutl2::generic::HostAppHandle) {
         registry.register_filter_plugin(&self.text_plugin);
     }
+
+    fn on_project_load(&mut self, _project: &mut aviutl2::generic::ProjectFile) {
+        self.update_project_dir(_project.get_path().as_deref());
+    }
+
+    fn on_project_save(&mut self, _project: &mut aviutl2::generic::ProjectFile) {
+        self.update_project_dir(_project.get_path().as_deref());
+    }
 }
 
 impl TypstPlugin {
@@ -50,6 +55,23 @@ impl TypstPlugin {
             .event_format(aviutl2::logger::AviUtl2Formatter)
             .with_writer(aviutl2::logger::AviUtl2LogWriter)
             .init();
+    }
+
+    fn update_project_dir(&mut self, project_path: Option<&Path>) {
+        let mut engine = TYPST_ENGINE.write().unwrap();
+        match project_path {
+            Some(path) => {
+                if path.as_os_str().is_empty() {
+                    engine.set_project_dir(None);
+                } else {
+                    let project_dir = path.parent().map(|p| p.to_path_buf());
+                    engine.set_project_dir(project_dir);
+                }
+            }
+            None => {
+                engine.set_project_dir(None);
+            }
+        }
     }
 }
 

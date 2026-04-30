@@ -1,16 +1,13 @@
 use aviutl2::{
     AnyResult,
-    anyhow::anyhow,
     filter::{FilterConfigItemSliceExt, FilterConfigItems},
     tracing,
 };
 
-use crate::typst_world::{TYPST_ENGINE, TypstEngine};
+use crate::typst_world::TYPST_ENGINE;
 
 #[aviutl2::plugin(FilterPlugin)]
-pub struct TypstTextPlugin {
-    engine: &'static TypstEngine,
-}
+pub struct TypstTextPlugin {}
 
 #[derive(aviutl2::filter::FilterConfigSelectItems)]
 enum PageSizeUnit {
@@ -42,10 +39,7 @@ struct TypstTextConfig {
 
 impl aviutl2::filter::FilterPlugin for TypstTextPlugin {
     fn new(_info: aviutl2::common::AviUtl2Info) -> AnyResult<Self> {
-        let engine = TYPST_ENGINE
-            .as_ref()
-            .ok_or_else(|| anyhow!("Failed to initialize TypstEngine"))?;
-        Ok(Self { engine })
+        Ok(Self {})
     }
 
     fn plugin_info(&self) -> aviutl2::filter::FilterPluginTable {
@@ -98,7 +92,8 @@ impl aviutl2::filter::FilterPlugin for TypstTextPlugin {
 
         let text = format!("{}\n{}", header, config.text);
 
-        let image = self.engine.compile(&text, config.ppt)?;
+        let engine = TYPST_ENGINE.read().unwrap();
+        let image = engine.compile(&text, config.ppt)?;
         tracing::debug!("Rendered image: {} x {}", image.width, image.height);
         video.set_image_data(&image.data, image.width, image.height);
 
