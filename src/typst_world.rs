@@ -1,19 +1,22 @@
 use std::path::PathBuf;
-use std::sync::{LazyLock, RwLock};
+use std::sync::{Arc, LazyLock, Mutex, RwLock};
 
 use aviutl2::{anyhow, filter::RgbaPixel, tracing};
 use chrono::{DateTime, Datelike, FixedOffset, Local, Utc};
-use typst::ecow::EcoString;
 use typst::{
     Library, LibraryExt, World,
-    diag::{FileError, FileResult, Warned},
+    diag::{FileResult, Warned},
     foundations::{Bytes, Datetime},
     layout::PagedDocument,
-    syntax::{FileId, Source, VirtualPath},
+    syntax::{FileId, Source},
     text::{Font, FontBook},
     utils::LazyHash,
 };
 use typst_kit::fonts::{FontSlot, Fonts};
+use typst_kit::package::PackageStorage;
+
+use crate::typst_file::FileStore;
+use crate::typst_package::new_storage;
 
 pub static TYPST_ENGINE: LazyLock<RwLock<TypstEngine>> =
     LazyLock::new(|| RwLock::new(TypstEngine::new()));
@@ -23,6 +26,7 @@ pub struct TypstEngine {
     book: LazyHash<FontBook>,
     fonts: Vec<FontSlot>,
     project_dir: Option<PathBuf>,
+    package_storage: Arc<Mutex<PackageStorage>>,
 }
 
 impl TypstEngine {
@@ -34,11 +38,14 @@ impl TypstEngine {
             .include_embedded_fonts(true)
             .search();
 
+        let package_storage = Arc::new(Mutex::new(new_storage()));
+
         Self {
             library: LazyHash::new(library),
             book: LazyHash::new(fonts.book),
             fonts: fonts.fonts,
             project_dir: None,
+            package_storage,
         }
     }
 
@@ -47,10 +54,7 @@ impl TypstEngine {
     }
 
     pub fn compile(&self, source: &str, ppt: f32) -> anyhow::Result<RenderedImage> {
-        let path = VirtualPath::new("<main>");
-        let main_file_id = FileId::new_fake(path);
-        let main_source = Source::new(main_file_id, source.to_string());
-        let world = self.create_world(main_source);
+        let world = self.create_world(source);
         let Warned { output, warnings } = typst::compile::<PagedDocument>(&world);
         for warning in warnings {
             tracing::warn!("Typst warning: {:?}", warning);
@@ -87,14 +91,17 @@ impl TypstEngine {
         Ok(rendered_image)
     }
 
-    fn create_world(&self, main: Source) -> TypstWorld<'_> {
+    fn create_world(&self, main: &str) -> TypstWorld<'_> {
         TypstWorld {
             library: &self.library,
             book: &self.book,
             fonts: &self.fonts,
-            root: self.project_dir.clone(),
-            main,
             now: Utc::now(),
+            file_store: FileStore::new(
+                main,
+                self.project_dir.clone(),
+                self.package_storage.clone(),
+            ),
         }
     }
 }
@@ -103,31 +110,8 @@ struct TypstWorld<'a> {
     library: &'a LazyHash<Library>,
     book: &'a LazyHash<FontBook>,
     fonts: &'a [FontSlot],
-    root: Option<PathBuf>,
-    main: Source,
     now: DateTime<Utc>,
-}
-
-impl TypstWorld<'_> {
-    fn find_file(&self, id: FileId) -> FileResult<PathBuf> {
-        tracing::debug!("root: {:?}", self.root);
-        tracing::debug!("looking for file: {:?}", id);
-        if self.root.is_none() {
-            return Err(FileError::Other(Some(EcoString::from(
-                "Project directory not set",
-            ))));
-        }
-        let root = self.root.as_ref().unwrap();
-        match id.vpath().resolve(root) {
-            Some(path) => Ok(path),
-            None => {
-                tracing::error!("Failed to resolve file: {:?}", id);
-                Err(FileError::Other(Some(EcoString::from(
-                    "Failed to resolve file",
-                ))))
-            }
-        }
-    }
+    file_store: FileStore,
 }
 
 impl World for TypstWorld<'_> {
@@ -140,30 +124,17 @@ impl World for TypstWorld<'_> {
     }
 
     fn main(&self) -> FileId {
-        self.main.id()
+        self.file_store.main()
     }
 
     fn source(&self, id: FileId) -> FileResult<Source> {
         tracing::info!("Loading source: {:?}", id);
-        if id == self.main.id() {
-            return Ok(self.main.clone());
-        }
-        let path = self.find_file(id)?;
-        let content = std::fs::read_to_string(&path).map_err(|e| {
-            tracing::error!("Failed to read file {:?}: {}", path, e);
-            FileError::Other(Some(EcoString::from(format!("Failed to read file: {}", e))))
-        })?;
-        Ok(Source::new(id, content))
+        self.file_store.source(id)
     }
 
     fn file(&self, id: FileId) -> FileResult<Bytes> {
         tracing::info!("Loading file: {:?}", id);
-        let path = self.find_file(id)?;
-        let content = std::fs::read(&path).map_err(|e| {
-            tracing::error!("Failed to read file {:?}: {}", path, e);
-            FileError::Other(Some(EcoString::from(format!("Failed to read file: {}", e))))
-        })?;
-        Ok(Bytes::new(content))
+        self.file_store.file(id)
     }
 
     fn font(&self, index: usize) -> Option<Font> {

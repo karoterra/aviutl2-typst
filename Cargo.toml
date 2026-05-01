@@ -9,6 +9,8 @@ crate-type = ["cdylib"]
 [dependencies]
 aviutl2 = "0.26.0"
 chrono = "0.4.44"
+rustc-hash = "2.1.2"
 typst = "=0.14.2"
 typst-kit = { version = "0.14.2", features = ["embed-fonts"] }
 typst-render = "0.14.2"
+windows = { version = "0.62.2", features = ["Win32", "Win32_System_LibraryLoader"] }

@@ -1,10 +1,14 @@
+mod path;
+mod typst_file;
+mod typst_package;
 mod typst_text_plugin;
 mod typst_world;
 
 use std::path::Path;
 
-use aviutl2::{AnyResult, tracing};
+use aviutl2::{AnyResult, anyhow::anyhow, tracing};
 
+use crate::path::DLL_DIR;
 use crate::typst_text_plugin::TypstTextPlugin;
 use crate::typst_world::TYPST_ENGINE;
 
@@ -16,6 +20,12 @@ struct TypstPlugin {
 impl aviutl2::generic::GenericPlugin for TypstPlugin {
     fn new(info: aviutl2::common::AviUtl2Info) -> AnyResult<Self> {
         Self::init_logging();
+
+        if DLL_DIR.is_none() {
+            return Err(anyhow!("Failed to determine DLL directory."));
+        }
+        tracing::debug!("DLL directory: {:?}", DLL_DIR.as_ref().unwrap());
+
         Ok(Self {
             text_plugin: aviutl2::generic::SubPlugin::new_filter_plugin(&info)?,
         })

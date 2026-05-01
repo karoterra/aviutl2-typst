@@ -3112,9 +3112,11 @@ version = "0.1.0"
 dependencies = [
  "aviutl2",
  "chrono",
+ "rustc-hash",
  "typst",
  "typst-kit",
  "typst-render",
+ "windows",
 ]
 
 [[package]]
