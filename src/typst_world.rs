@@ -3,12 +3,15 @@ use std::sync::{Arc, LazyLock, Mutex, RwLock};
 
 use aviutl2::{anyhow, filter::RgbaPixel, tracing};
 use chrono::{DateTime, Datelike, FixedOffset, Local, Utc};
+use codespan_reporting::diagnostic::{Diagnostic, Label};
+use typst::ecow::eco_format;
+use typst::syntax::VirtualPath;
 use typst::{
-    Library, LibraryExt, World,
-    diag::{FileResult, Warned},
+    Library, LibraryExt, World, WorldExt,
+    diag::{FileResult, Severity, SourceDiagnostic, Warned},
     foundations::{Bytes, Datetime},
     layout::{Page, PagedDocument},
-    syntax::{FileId, Source},
+    syntax::{FileId, Lines, Source, Span},
     text::{Font, FontBook},
     utils::LazyHash,
 };
@@ -17,6 +20,11 @@ use typst_kit::package::PackageStorage;
 
 use crate::typst_file::FileStore;
 use crate::typst_package::new_storage;
+
+type CodespanError = codespan_reporting::files::Error;
+type CodespanResult<T> = Result<T, CodespanError>;
+
+static FAKE_MAIN_PATH: &str = "<text>";
 
 pub static TYPST_ENGINE: LazyLock<RwLock<TypstEngine>> =
     LazyLock::new(|| RwLock::new(TypstEngine::new()));
@@ -54,35 +62,51 @@ impl TypstEngine {
     }
 
     pub fn compile_text(&self, source: &str) -> anyhow::Result<PagedDocument> {
-        let world = self.create_world(source);
-        let Warned { output, warnings } = typst::compile::<PagedDocument>(&world);
-        for warning in warnings {
-            tracing::warn!("Typst warning: {:?}", warning);
-        }
-        output.map_err(|errors| {
-            for error in errors {
-                tracing::error!("Typst error: {:?}", error);
-            }
-            anyhow::anyhow!("Failed to compile Typst document")
-        })
+        let vpath = VirtualPath::new(FAKE_MAIN_PATH);
+        let id = FileId::new_fake(vpath);
+        let main = Source::new(id, source.to_string());
+        let world = self.create_world(main, self.project_dir.clone());
+        self.compile(&world)
     }
 
     pub fn compile_file(&self, path: &Path) -> anyhow::Result<PagedDocument> {
         let source = std::fs::read_to_string(path)?;
-        self.compile_text(&source)
+        let root = path
+            .parent()
+            .map(PathBuf::from)
+            .ok_or(anyhow::anyhow!("Failed to resolve parent dir: {path:?}"))?;
+        let vpath = VirtualPath::within_root(path, &root)
+            .ok_or(anyhow::anyhow!("Failed to resolve parent dir: {path:?}"))?;
+        let id = FileId::new_fake(vpath);
+        let main = Source::new(id, source);
+        let world = self.create_world(main, Some(root));
+        self.compile(&world)
     }
 
-    fn create_world(&self, main: &str) -> TypstWorld<'_> {
+    fn compile(&self, world: &TypstWorld) -> anyhow::Result<PagedDocument> {
+        let Warned { output, warnings } = typst::compile::<PagedDocument>(&world);
+
+        match output {
+            Ok(doc) => {
+                print_diagnostics(world, &[], &warnings)
+                    .map_err(|e| anyhow::anyhow!("Failed to print diagnostics: {e}"))?;
+                Ok(doc)
+            }
+            Err(errors) => {
+                print_diagnostics(world, &errors, &warnings)
+                    .map_err(|e| anyhow::anyhow!("Failed to print diagnostics: {e}"))?;
+                Err(anyhow::anyhow!("Failed to compile Typst document"))
+            }
+        }
+    }
+
+    fn create_world(&self, main: Source, root: Option<PathBuf>) -> TypstWorld<'_> {
         TypstWorld {
             library: &self.library,
             book: &self.book,
             fonts: &self.fonts,
             now: Utc::now(),
-            file_store: FileStore::new(
-                main,
-                self.project_dir.clone(),
-                self.package_storage.clone(),
-            ),
+            file_store: FileStore::new(main, root, self.package_storage.clone()),
         }
     }
 }
@@ -137,6 +161,111 @@ impl World for TypstWorld<'_> {
             now.day().try_into().ok()?,
         )
     }
+}
+
+impl<'a> codespan_reporting::files::Files<'a> for TypstWorld<'_> {
+    type FileId = FileId;
+    type Name = String;
+    type Source = Lines<String>;
+
+    fn name(&'a self, id: Self::FileId) -> CodespanResult<Self::Name> {
+        let vpath = id.vpath();
+        let name = if let Some(package) = id.package() {
+            format!("{package}{}", vpath.as_rooted_path().display())
+        } else if vpath.as_rootless_path() == FAKE_MAIN_PATH {
+            FAKE_MAIN_PATH.into()
+        } else if let Some(root) = self.file_store.root().as_deref() {
+            vpath
+                .resolve(root)
+                .as_deref()
+                .unwrap_or_else(|| vpath.as_rootless_path())
+                .to_string_lossy()
+                .into()
+        } else {
+            vpath.as_rootless_path().to_string_lossy().into()
+        };
+        Ok(name)
+    }
+
+    fn source(&'a self, id: Self::FileId) -> CodespanResult<Self::Source> {
+        self.file_store
+            .source(id)
+            .map(|src| src.lines().clone())
+            .map_err(|_| CodespanError::FileMissing)
+    }
+
+    fn line_index(&'a self, id: Self::FileId, byte_index: usize) -> CodespanResult<usize> {
+        let lines = self
+            .file_store
+            .source(id)
+            .map(|src| src.lines().clone())
+            .map_err(|_| CodespanError::FileMissing)?;
+
+        lines
+            .byte_to_line(byte_index)
+            .ok_or_else(|| CodespanError::IndexTooLarge {
+                given: byte_index,
+                max: lines.len_bytes(),
+            })
+    }
+
+    fn line_range(
+        &'a self,
+        id: Self::FileId,
+        line_index: usize,
+    ) -> CodespanResult<std::ops::Range<usize>> {
+        let lines = self
+            .file_store
+            .source(id)
+            .map(|src| src.lines().clone())
+            .map_err(|_| CodespanError::FileMissing)?;
+
+        lines
+            .line_to_range(line_index)
+            .ok_or_else(|| CodespanError::LineTooLarge {
+                given: line_index,
+                max: lines.len_lines(),
+            })
+    }
+}
+
+fn print_diagnostics(
+    world: &TypstWorld,
+    errors: &[SourceDiagnostic],
+    warnings: &[SourceDiagnostic],
+) -> anyhow::Result<()> {
+    let config = codespan_reporting::term::Config {
+        tab_width: 2,
+        ..Default::default()
+    };
+
+    for diagnostic in warnings.iter().chain(errors) {
+        let diag = match diagnostic.severity {
+            Severity::Error => Diagnostic::error(),
+            Severity::Warning => Diagnostic::warning(),
+        }
+        .with_message(diagnostic.message.clone())
+        .with_notes(
+            diagnostic
+                .hints
+                .iter()
+                .map(|e| eco_format!("hint: {e}").into())
+                .collect(),
+        )
+        .with_labels(label(world, diagnostic.span).into_iter().collect());
+
+        let mut writer = match diagnostic.severity {
+            Severity::Error => aviutl2::logger::LockedInternalWriter::error(),
+            Severity::Warning => aviutl2::logger::LockedInternalWriter::warn(),
+        };
+        codespan_reporting::term::emit_to_io_write(&mut writer, &config, world, &diag)?;
+    }
+
+    Ok(())
+}
+
+fn label(world: &TypstWorld, span: Span) -> Option<Label<FileId>> {
+    Some(Label::primary(span.id()?, world.range(span)?))
 }
 
 pub struct RenderedImage {

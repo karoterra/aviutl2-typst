@@ -6,7 +6,7 @@ use rustc_hash::FxHashMap;
 use typst::{
     diag::{EcoString, FileError, FileResult},
     foundations::Bytes,
-    syntax::{FileId, Source, VirtualPath},
+    syntax::{FileId, Source},
 };
 use typst_kit::package::PackageStorage;
 
@@ -21,14 +21,10 @@ pub struct FileStore {
 
 impl FileStore {
     pub fn new(
-        source: &str,
+        main: Source,
         root: Option<PathBuf>,
         package_storage: Arc<Mutex<PackageStorage>>,
     ) -> Self {
-        let path = VirtualPath::new("<main>");
-        let id = FileId::new_fake(path);
-        let main = Source::new(id, source.to_string());
-
         Self {
             main,
             root,
@@ -39,6 +35,10 @@ impl FileStore {
 
     pub fn main(&self) -> FileId {
         self.main.id()
+    }
+
+    pub fn root(&self) -> Option<PathBuf> {
+        self.root.clone()
     }
 
     pub fn source(&self, id: FileId) -> FileResult<Source> {
