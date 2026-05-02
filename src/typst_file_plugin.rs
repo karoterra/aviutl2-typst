@@ -5,6 +5,7 @@ use aviutl2::{
     filter::{FilterConfigItemSliceExt, FilterConfigItems},
     tracing,
 };
+use typst::comemo;
 
 use crate::typst_world::{RenderedImage, TYPST_ENGINE};
 
@@ -54,6 +55,7 @@ impl aviutl2::filter::FilterPlugin for TypstFilePlugin {
                 let engine = TYPST_ENGINE.read().unwrap();
                 let doc = engine.compile_file(&path)?;
                 if doc.pages.is_empty() {
+                    comemo::evict(0);
                     anyhow::bail!("Compiled Typst document has no pages");
                 }
 
@@ -65,6 +67,9 @@ impl aviutl2::filter::FilterPlugin for TypstFilePlugin {
                 video.set_image_data(&image.data, image.width, image.height);
             }
         };
+
+        comemo::evict(0);
+
         Ok(())
     }
 }

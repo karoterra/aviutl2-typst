@@ -109,12 +109,12 @@ impl World for TypstWorld<'_> {
     }
 
     fn source(&self, id: FileId) -> FileResult<Source> {
-        tracing::info!("Loading source: {:?}", id);
+        tracing::debug!("Loading source: {:?}", id);
         self.file_store.source(id)
     }
 
     fn file(&self, id: FileId) -> FileResult<Bytes> {
-        tracing::info!("Loading file: {:?}", id);
+        tracing::debug!("Loading file: {:?}", id);
         self.file_store.file(id)
     }
 

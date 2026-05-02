@@ -3,6 +3,7 @@ use aviutl2::{
     filter::{FilterConfigItemSliceExt, FilterConfigItems},
     tracing,
 };
+use typst::comemo;
 
 use crate::typst_world::{RenderedImage, TYPST_ENGINE};
 
@@ -95,6 +96,7 @@ impl aviutl2::filter::FilterPlugin for TypstTextPlugin {
         let engine = TYPST_ENGINE.read().unwrap();
         let doc = engine.compile_text(&text)?;
         if doc.pages.is_empty() {
+            comemo::evict(0);
             anyhow::bail!("Compiled Typst document has no pages");
         }
 
@@ -102,6 +104,8 @@ impl aviutl2::filter::FilterPlugin for TypstTextPlugin {
         let image = RenderedImage::render(page, config.ppt);
         tracing::debug!("Rendered image: {} x {}", image.width, image.height);
         video.set_image_data(&image.data, image.width, image.height);
+
+        comemo::evict(0);
 
         Ok(())
     }
