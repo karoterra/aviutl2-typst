@@ -7,3 +7,9 @@ Typstテキスト=Typst Text
 単位=Unit
 スケール=Scale
 テキスト=Text
+
+[Typstファイル]
+Typstファイル=Typst File
+スケール=Scale
+ページ=Page
+テキスト=Text

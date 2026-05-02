@@ -1,10 +1,10 @@
 use aviutl2::{
-    AnyResult,
+    AnyResult, anyhow,
     filter::{FilterConfigItemSliceExt, FilterConfigItems},
     tracing,
 };
 
-use crate::typst_world::TYPST_ENGINE;
+use crate::typst_world::{RenderedImage, TYPST_ENGINE};
 
 #[aviutl2::plugin(FilterPlugin)]
 pub struct TypstTextPlugin {}
@@ -93,7 +93,13 @@ impl aviutl2::filter::FilterPlugin for TypstTextPlugin {
         let text = format!("{}\n{}", header, config.text);
 
         let engine = TYPST_ENGINE.read().unwrap();
-        let image = engine.compile(&text, config.ppt)?;
+        let doc = engine.compile_text(&text)?;
+        if doc.pages.is_empty() {
+            anyhow::bail!("Compiled Typst document has no pages");
+        }
+
+        let page = doc.pages.first().unwrap();
+        let image = RenderedImage::render(page, config.ppt);
         tracing::debug!("Rendered image: {} x {}", image.width, image.height);
         video.set_image_data(&image.data, image.width, image.height);
 

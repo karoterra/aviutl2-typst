@@ -1,5 +1,6 @@
 mod path;
 mod typst_file;
+mod typst_file_plugin;
 mod typst_package;
 mod typst_text_plugin;
 mod typst_world;
@@ -9,12 +10,14 @@ use std::path::Path;
 use aviutl2::{AnyResult, anyhow::anyhow, tracing};
 
 use crate::path::DLL_DIR;
+use crate::typst_file_plugin::TypstFilePlugin;
 use crate::typst_text_plugin::TypstTextPlugin;
 use crate::typst_world::TYPST_ENGINE;
 
 #[aviutl2::plugin(GenericPlugin)]
 struct TypstPlugin {
     text_plugin: aviutl2::generic::SubPlugin<TypstTextPlugin>,
+    file_plugin: aviutl2::generic::SubPlugin<TypstFilePlugin>,
 }
 
 impl aviutl2::generic::GenericPlugin for TypstPlugin {
@@ -28,6 +31,7 @@ impl aviutl2::generic::GenericPlugin for TypstPlugin {
 
         Ok(Self {
             text_plugin: aviutl2::generic::SubPlugin::new_filter_plugin(&info)?,
+            file_plugin: aviutl2::generic::SubPlugin::new_filter_plugin(&info)?,
         })
     }
 
@@ -43,6 +47,7 @@ impl aviutl2::generic::GenericPlugin for TypstPlugin {
 
     fn register(&mut self, registry: &mut aviutl2::generic::HostAppHandle) {
         registry.register_filter_plugin(&self.text_plugin);
+        registry.register_filter_plugin(&self.file_plugin);
     }
 
     fn on_project_load(&mut self, _project: &mut aviutl2::generic::ProjectFile) {

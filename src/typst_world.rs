@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Mutex, RwLock};
 
 use aviutl2::{anyhow, filter::RgbaPixel, tracing};
@@ -7,7 +7,7 @@ use typst::{
     Library, LibraryExt, World,
     diag::{FileResult, Warned},
     foundations::{Bytes, Datetime},
-    layout::PagedDocument,
+    layout::{Page, PagedDocument},
     syntax::{FileId, Source},
     text::{Font, FontBook},
     utils::LazyHash,
@@ -53,42 +53,23 @@ impl TypstEngine {
         self.project_dir = dir;
     }
 
-    pub fn compile(&self, source: &str, ppt: f32) -> anyhow::Result<RenderedImage> {
+    pub fn compile_text(&self, source: &str) -> anyhow::Result<PagedDocument> {
         let world = self.create_world(source);
         let Warned { output, warnings } = typst::compile::<PagedDocument>(&world);
         for warning in warnings {
             tracing::warn!("Typst warning: {:?}", warning);
         }
-        let document = output.map_err(|errors| {
+        output.map_err(|errors| {
             for error in errors {
                 tracing::error!("Typst error: {:?}", error);
             }
             anyhow::anyhow!("Failed to compile Typst document")
-        })?;
+        })
+    }
 
-        if document.pages.is_empty() {
-            tracing::warn!("Compiled Typst document has no pages");
-            return Err(anyhow::anyhow!("Compiled Typst document has no pages"));
-        }
-        let page = document.pages.first().unwrap();
-        let image = typst_render::render(page, ppt);
-        let pixels = image
-            .pixels()
-            .iter()
-            .map(|p| RgbaPixel {
-                r: p.red(),
-                g: p.green(),
-                b: p.blue(),
-                a: p.alpha(),
-            })
-            .collect::<Vec<_>>();
-        let rendered_image = RenderedImage {
-            width: image.width(),
-            height: image.height(),
-            data: pixels,
-        };
-
-        Ok(rendered_image)
+    pub fn compile_file(&self, path: &Path) -> anyhow::Result<PagedDocument> {
+        let source = std::fs::read_to_string(path)?;
+        self.compile_text(&source)
     }
 
     fn create_world(&self, main: &str) -> TypstWorld<'_> {
@@ -162,4 +143,25 @@ pub struct RenderedImage {
     pub width: u32,
     pub height: u32,
     pub data: Vec<RgbaPixel>,
+}
+
+impl RenderedImage {
+    pub fn render(page: &Page, pixel_per_pt: f32) -> Self {
+        let image = typst_render::render(page, pixel_per_pt);
+        let data = image
+            .pixels()
+            .iter()
+            .map(|p| RgbaPixel {
+                r: p.red(),
+                g: p.green(),
+                b: p.blue(),
+                a: p.alpha(),
+            })
+            .collect::<Vec<_>>();
+        Self {
+            width: image.width(),
+            height: image.height(),
+            data,
+        }
+    }
 }
