@@ -15,7 +15,6 @@ use crate::typst_file_plugin::{FILE_PLUGIN_CACHE, TypstFilePlugin};
 use crate::typst_text_plugin::{TEXT_RENDER_CACHE, TypstTextPlugin};
 use crate::typst_world::TYPST_ENGINE;
 
-static PLUGIN_NAME: &str = "Typst for AviUtl2";
 static EDIT_HANDLE: aviutl2::generic::GlobalEditHandle = aviutl2::generic::GlobalEditHandle::new();
 
 #[aviutl2::plugin(GenericPlugin)]
@@ -41,10 +40,9 @@ impl aviutl2::generic::GenericPlugin for TypstPlugin {
 
     fn plugin_info(&self) -> aviutl2::generic::GenericPluginTable {
         aviutl2::generic::GenericPluginTable {
-            name: PLUGIN_NAME.to_string(),
+            name: "Typst".to_string(),
             information: format!(
-                "{} v{} by karoterra",
-                PLUGIN_NAME,
+                "Typst for AviUtl2 v{} by karoterra",
                 env!("CARGO_PKG_VERSION")
             ),
         }
@@ -59,7 +57,7 @@ impl aviutl2::generic::GenericPlugin for TypstPlugin {
         let filters = aviutl2::file_filters! {
             "Typst file" => ["typ"]
         };
-        registry.register_file_drop_handler(PLUGIN_NAME, &filters, |path| {
+        registry.register_file_drop_handler("Typst", &filters, |path| {
             let res = EDIT_HANDLE
                 .call_edit_section(|edit_section| {
                     let position = edit_section.get_mouse_layer_frame()?.unwrap_or(
