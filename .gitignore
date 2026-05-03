@@ -8,3 +8,6 @@
 
 # Visual Studio Code
 .vscode/
+
+# CI
+NOTICE_ci.html
