@@ -8,10 +8,11 @@ mod typst_world;
 use std::path::Path;
 
 use aviutl2::{AnyResult, anyhow, tracing};
+use typst::comemo;
 
 use crate::path::DLL_DIR;
-use crate::typst_file_plugin::TypstFilePlugin;
-use crate::typst_text_plugin::TypstTextPlugin;
+use crate::typst_file_plugin::{FILE_PLUGIN_CACHE, TypstFilePlugin};
+use crate::typst_text_plugin::{TEXT_RENDER_CACHE, TypstTextPlugin};
 use crate::typst_world::TYPST_ENGINE;
 
 static PLUGIN_NAME: &str = "Typst for AviUtl2";
@@ -110,6 +111,13 @@ impl aviutl2::generic::GenericPlugin for TypstPlugin {
 
     fn on_project_save(&mut self, _project: &mut aviutl2::generic::ProjectFile) {
         self.update_project_dir(_project.get_path().as_deref());
+    }
+
+    fn on_clear_cache(&mut self, _edit_section: &aviutl2::generic::EditSection) {
+        tracing::debug!("Delete typst cache");
+        TEXT_RENDER_CACHE.lock().unwrap().clear();
+        FILE_PLUGIN_CACHE.lock().unwrap().clear();
+        comemo::evict(0);
     }
 }
 
