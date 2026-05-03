@@ -1,12 +1,19 @@
 #:schema ./.aviutl2-cli/aviutl2.schema.json
 # 設定ファイルについては https://github.com/sevenc-nanashi/aviutl2-cli を参照してください。
+
+# プロジェクト設定
+
 [project]
 id = "Karoterra.Typst"
 name = "Typst for AviUtl2"
 version = "0.1.0"
 
+# 開発時の設定
+
 [development]
 aviutl2_version = "latest"
+
+# 成果物の設定
 
 [artifacts.English-typst-aul2]
 destination = "Language/English.typst_kr.aul2"
@@ -30,3 +37,25 @@ source = "target/debug/typst_kr.dll"
 [artifacts.typst_kr-aux2.profiles.release]
 build = "cargo build --release"
 source = "target/release/typst_kr.dll"
+
+[artifacts.README-md]
+destination = "Plugin/Karoterra.Typst/README.md"
+source = "./README.md"
+
+[artifacts.LICENSE-MIT]
+destination = "Plugin/Karoterra.Typst/LICENSE-MIT"
+source = "./LICENSE-MIT"
+
+[artifacts.LICENSE-APACHE]
+destination = "Plugin/Karoterra.Typst/LICENSE-APACHE"
+source = "./LICENSE-APACHE"
+
+[artifacts.NOTICE-html]
+destination = "Plugin/Karoterra.Typst/NOTICE.html"
+source = "./NOTICE.html"
+
+# リリース設定
+
+[release]
+package_template = "./package.txt"
+package_information = "{name} v{version} by karoterra"

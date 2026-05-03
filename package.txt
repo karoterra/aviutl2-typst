@@ -1,0 +1,9 @@
+# Typst for AviUtl2
+
+AviUtl2 で Typst を使えるようにするプラグイン
+
+以下のメディアオブジェクトが追加されます
+- Typst\Typstテキスト
+- Typst\Typstファイル
+
+公開ページ: https://github.com/karoterra/aviutl2-typst
