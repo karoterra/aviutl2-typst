@@ -1,3 +1,36 @@
 [tools]
 "github:sevenc-nanashi/aviutl2-cli" = { version = "latest", bin = "au2.exe" }
 "github:EmbarkStudios/cargo-about" = { version = "latest" }
+
+[tasks.release-prepare]
+description = "Prepare release"
+shell = "bash"
+usage = '''
+arg "<target>" help="Target version"
+'''
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "Prepare release for v{{ usage.target }}"
+
+cargo set-version {{ usage.target }}
+sed -i "s/^version = .*/version = \"{{ usage.target }}\"/" aviutl2.toml
+
+au2 release
+
+git add Cargo.toml Cargo.lock aviutl2.toml
+git diff --cached
+
+read -r -p "Commit and tag v{{ usage.target }}? [y/N] " answer
+case "$answer" in
+    [yY]) ;;
+    *) echo "Canceled"; exit 1 ;;
+esac
+
+git commit -m ":bookmark: v{{ usage.target }}"
+git tag -a "v{{ usage.target }}" -m "version {{ usage.target }}"
+echo "and then..."
+echo "\$ git push origin main"
+echo "\$ git push origin v{{ usage.target }}"
+'''
