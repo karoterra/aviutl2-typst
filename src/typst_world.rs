@@ -280,11 +280,14 @@ impl RenderedImage {
         let data = image
             .pixels()
             .iter()
-            .map(|p| RgbaPixel {
-                r: p.red(),
-                g: p.green(),
-                b: p.blue(),
-                a: p.alpha(),
+            .map(|premultiplied| {
+                let straight = premultiplied.demultiply();
+                RgbaPixel {
+                    r: straight.red(),
+                    g: straight.green(),
+                    b: straight.blue(),
+                    a: straight.alpha(),
+                }
             })
             .collect::<Vec<_>>();
         Self {
