@@ -1,3 +1,5 @@
 * text=auto eol=lf
 
 *.aul2 text eol=crlf linguist-language=INI
+
+NOTICE.html linguist-documentation
