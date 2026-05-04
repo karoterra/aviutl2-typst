@@ -2,6 +2,31 @@
 "github:sevenc-nanashi/aviutl2-cli" = { version = "latest", bin = "au2.exe" }
 "github:EmbarkStudios/cargo-about" = { version = "latest" }
 
+# Tasks
+
+[vars]
+notice_cmd = 'cargo about generate about.hbs -o NOTICE.html'
+
+[tasks.dev-prepare]
+description = "Prepare development"
+run = "au2 prepare"
+
+[tasks."check:format"]
+description = "Check format"
+run = "cargo fmt --all --check"
+
+[tasks."check:clippy"]
+description = "Clippy"
+run = "cargo clippy --all-targets -- -D warnings"
+
+[tasks.check]
+description = "Check all"
+depends = ["check:*"]
+
+[tasks.notice]
+description = "Generate notice file"
+run = "{{ vars.notice_cmd }}"
+
 [tasks.release-prepare]
 description = "Prepare release"
 shell = "bash"
@@ -16,6 +41,8 @@ echo "Prepare release for v{{ usage.target }}"
 
 cargo set-version {{ usage.target }}
 sed -i "s/^version = .*/version = \"{{ usage.target }}\"/" aviutl2.toml
+
+{{ vars.notice_cmd }}
 
 au2 release
 
