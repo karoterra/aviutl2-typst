@@ -6,7 +6,7 @@
 [project]
 id = "Karoterra.Typst"
 name = "Typst for AviUtl2"
-version = "0.1.0"
+version = "0.1.1"
 
 # 開発時の設定
 
