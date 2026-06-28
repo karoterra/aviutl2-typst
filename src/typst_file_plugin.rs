@@ -73,7 +73,7 @@ impl aviutl2::filter::FilterPlugin for TypstFilePlugin {
             ),
             flags: aviutl2::bitflag!(aviutl2::filter::FilterPluginFlags {
                 video: true,
-                as_object: true
+                input: true,
             }),
             config_items: TypstFileConfig::to_config_items(),
         }
