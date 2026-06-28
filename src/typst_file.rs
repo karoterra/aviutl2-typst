@@ -1,132 +1,90 @@
-use std::fs;
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, LazyLock, Mutex};
 
-use rustc_hash::FxHashMap;
+use aviutl2::anyhow;
 use typst::{
     diag::{EcoString, FileError, FileResult},
     foundations::Bytes,
-    syntax::{FileId, Source},
+    syntax::{FileId, RootedPath, VirtualPath, VirtualRoot},
 };
-use typst_kit::package::PackageStorage;
+use typst_kit::files::{FileLoader, FsRoot};
+use typst_kit::packages::SystemPackages;
 
-use crate::typst_package::PackageDownloadProgress;
+pub static FAKE_MAIN_ID: LazyLock<FileId> = LazyLock::new(|| {
+    FileId::unique(RootedPath::new(
+        VirtualRoot::Project,
+        VirtualPath::new("<text>").unwrap(),
+    ))
+});
 
-pub struct FileStore {
-    main: Source,
-    root: Option<PathBuf>,
-    slots: Mutex<FxHashMap<FileId, FileSlot>>,
-    package_storage: Arc<Mutex<PackageStorage>>,
+pub struct TypstFileLoader {
+    main_id: FileId,
+    fake_main_data: Bytes,
+    project: Option<FsRoot>,
+    packages: Arc<Mutex<SystemPackages>>,
 }
 
-impl FileStore {
-    pub fn new(
-        main: Source,
+impl TypstFileLoader {
+    pub fn from_text(
+        text: &str,
         root: Option<PathBuf>,
-        package_storage: Arc<Mutex<PackageStorage>>,
+        packages: Arc<Mutex<SystemPackages>>,
     ) -> Self {
         Self {
-            main,
-            root,
-            slots: Mutex::new(FxHashMap::default()),
-            package_storage,
+            main_id: *FAKE_MAIN_ID,
+            fake_main_data: Bytes::from_string(text.to_string()),
+            project: root.map(FsRoot::new),
+            packages,
         }
+    }
+
+    pub fn from_file(path: &Path, packages: Arc<Mutex<SystemPackages>>) -> anyhow::Result<Self> {
+        let root = path
+            .parent()
+            .map(PathBuf::from)
+            .ok_or(anyhow::anyhow!("Failed to resolve parent dir: {path:?}"))?;
+        let id = RootedPath::new(
+            VirtualRoot::Project,
+            VirtualPath::virtualize(&root, path).unwrap(),
+        )
+        .intern();
+
+        Ok(Self {
+            main_id: id,
+            fake_main_data: Bytes::new([]),
+            project: Some(FsRoot::new(root)),
+            packages,
+        })
     }
 
     pub fn main(&self) -> FileId {
-        self.main.id()
+        self.main_id
     }
 
-    pub fn root(&self) -> Option<PathBuf> {
-        self.root.clone()
+    pub fn project(&self) -> Option<&FsRoot> {
+        self.project.as_ref()
     }
 
-    pub fn source(&self, id: FileId) -> FileResult<Source> {
-        if id == self.main.id() {
-            return Ok(self.main.clone());
-        }
-        let mut map = self.slots.lock().unwrap();
-        let ps = self.package_storage.lock().unwrap();
-        map.entry(id)
-            .or_insert_with(|| FileSlot::new(id))
-            .source(self.root.as_ref(), &ps)
-    }
-
-    pub fn file(&self, id: FileId) -> FileResult<Bytes> {
-        let mut map = self.slots.lock().unwrap();
-        let ps = self.package_storage.lock().unwrap();
-        map.entry(id)
-            .or_insert_with(|| FileSlot::new(id))
-            .file(self.root.as_ref(), &ps)
-    }
-}
-
-struct FileSlot {
-    id: FileId,
-    source: Option<FileResult<Source>>,
-    file: Option<FileResult<Bytes>>,
-}
-
-impl FileSlot {
-    fn new(id: FileId) -> Self {
-        Self {
-            id,
-            source: None,
-            file: None,
-        }
-    }
-
-    fn source(
-        &mut self,
-        root: Option<&PathBuf>,
-        package_storage: &PackageStorage,
-    ) -> FileResult<Source> {
-        match &self.source {
-            Some(source) => source.clone(),
-            None => {
-                let path = resolve_path(root, self.id, package_storage)?;
-                let result = fs::read_to_string(&path)
-                    .map(|s| Source::new(self.id, s))
-                    .map_err(|e| FileError::from_io(e, &path));
-                self.source = Some(result.clone());
-                result
+    fn root(&self, id: FileId) -> FileResult<FsRoot> {
+        Ok(match id.root() {
+            VirtualRoot::Project => {
+                self.project
+                    .clone()
+                    .ok_or(FileError::Other(Some(EcoString::from(
+                        "Root directory is not set. Please save project.",
+                    ))))?
             }
-        }
-    }
-
-    fn file(
-        &mut self,
-        root: Option<&PathBuf>,
-        package_storage: &PackageStorage,
-    ) -> FileResult<Bytes> {
-        match &self.file {
-            Some(file) => file.clone(),
-            None => {
-                let path = resolve_path(root, self.id, package_storage)?;
-                let result = fs::read(&path)
-                    .map(Bytes::new)
-                    .map_err(|e| FileError::from_io(e, &path));
-                self.file = Some(result.clone());
-                result
-            }
-        }
+            VirtualRoot::Package(spec) => self.packages.lock().unwrap().obtain(spec)?,
+        })
     }
 }
 
-fn resolve_path(
-    root: Option<&PathBuf>,
-    id: FileId,
-    package_storage: &PackageStorage,
-) -> FileResult<PathBuf> {
-    if let Some(spec) = id.package() {
-        let mut progress = PackageDownloadProgress { package: spec };
-        let dir = package_storage.prepare_package(spec, &mut progress)?;
-        id.vpath().resolve(&dir).ok_or(FileError::AccessDenied)
-    } else if let Some(root) = root {
-        id.vpath().resolve(root).ok_or(FileError::AccessDenied)
-    } else {
-        Err(FileError::Other(Some(EcoString::from(
-            "Root directory is not set. Please save project.",
-        ))))
+impl FileLoader for TypstFileLoader {
+    fn load(&self, id: FileId) -> FileResult<Bytes> {
+        if id == *FAKE_MAIN_ID {
+            Ok(self.fake_main_data.clone())
+        } else {
+            self.root(id)?.load(id.vpath())
+        }
     }
 }

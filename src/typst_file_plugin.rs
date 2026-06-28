@@ -11,7 +11,7 @@ use aviutl2::{
 };
 use lru::LruCache;
 use typst::comemo;
-use typst::layout::Page;
+use typst_layout::Page;
 
 use crate::typst_world::{RenderedImage, TYPST_ENGINE};
 
@@ -21,7 +21,7 @@ pub struct TypstFilePlugin {}
 #[aviutl2::filter::filter_config_items]
 struct TypstFileConfig {
     #[track(name = "スケール", range = 1..=10, default = 1, step = 0.01)]
-    ppt: f32,
+    ppt: f64,
     #[track(name = "ページ", range = 1..=100, default = 1, step = 1.0)]
     page: usize,
     #[file(name = "ファイル", filters = {"Typst file" => ["typ"]})]
@@ -33,7 +33,7 @@ pub type FileCompileCacheValue = Vec<Page>;
 
 pub type FileRenderCacheKey = i64; // ObjectInfo.effect_id
 pub struct FileRenderCacheValue {
-    ppt: f32,
+    ppt: f64,
     page: usize,
     path: PathBuf,
     image: RenderedImage,
@@ -131,15 +131,15 @@ impl aviutl2::filter::FilterPlugin for TypstFilePlugin {
 fn compile(path: &Path) -> AnyResult<FileCompileCacheValue> {
     let engine = TYPST_ENGINE.read().unwrap();
     let doc = engine.compile_file(path)?;
-    if doc.pages.is_empty() {
+    if doc.pages().is_empty() {
         comemo::evict(0);
         anyhow::bail!("Compiled Typst document has no pages");
     }
 
-    Ok(doc.pages)
+    Ok(doc.pages().to_vec())
 }
 
-fn render(pages: &[Page], ppt: f32, page: usize, path: &Path) -> AnyResult<FileRenderCacheValue> {
+fn render(pages: &[Page], ppt: f64, page: usize, path: &Path) -> AnyResult<FileRenderCacheValue> {
     let idx = std::cmp::min(page - 1, pages.len() - 1);
     let image = RenderedImage::render(&pages[idx], ppt);
 

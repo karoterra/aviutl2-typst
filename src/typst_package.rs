@@ -1,53 +1,56 @@
 use aviutl2::tracing;
+use typst::ecow::{EcoString, eco_format};
 use typst::syntax::package::PackageSpec;
-use typst_kit::download::{DownloadState, Downloader, Progress};
-use typst_kit::package::PackageStorage;
+use typst_kit::downloader::{
+    Downloader, Progress, ProgressDownloader, ProgressReporter, SystemDownloader,
+};
+use typst_kit::packages::{FsPackages, SystemPackages, UniversePackages};
 
 use crate::path::{get_package_cache_dir, get_package_dir};
 
-fn new_downloader() -> Downloader {
+fn new_downloader() -> impl Downloader {
     let user_agent = concat!("typst_kr/", env!("CARGO_PKG_VERSION"));
-    Downloader::new(user_agent)
+    let system = SystemDownloader::new(user_agent);
+
+    ProgressDownloader::new(system, |key| {
+        let name = if let Some(spec) = key.downcast_ref::<PackageSpec>() {
+            Some(eco_format!("{spec}"))
+        } else if let Some(&s @ "release") = key.downcast_ref::<&str>() {
+            Some(s.into())
+        } else {
+            None
+        };
+        PrintProgress { name }
+    })
 }
 
-pub fn new_storage() -> PackageStorage {
-    PackageStorage::new(get_package_cache_dir(), get_package_dir(), new_downloader())
+struct PrintProgress {
+    name: Option<EcoString>,
 }
 
-pub struct PackageDownloadProgress<'a> {
-    pub package: &'a PackageSpec,
-}
-
-impl Progress for PackageDownloadProgress<'_> {
-    fn print_start(&mut self) {
-        tracing::debug!("Start downloading package: {}", self.package);
+impl ProgressReporter for PrintProgress {
+    fn start(&mut self, _progress: &Progress) {
+        tracing::debug!(
+            "Start downloading package: {}",
+            self.name.as_deref().unwrap_or("<unknown>")
+        );
     }
 
-    fn print_progress(&mut self, _state: &DownloadState) {}
+    fn update(&mut self, _progress: &Progress) {}
 
-    fn print_finish(&mut self, state: &DownloadState) {
+    fn finish(&mut self, progress: &Progress) {
         tracing::debug!(
             "Finished downloading package: {}, {}",
-            self.package,
-            as_bytes_unit(state.total_downloaded)
+            self.name.as_deref().unwrap_or("<unknown>"),
+            progress
         );
     }
 }
 
-fn as_bytes_unit(size: usize) -> String {
-    const KI: f64 = 1024.0;
-    const MI: f64 = KI * KI;
-    const GI: f64 = KI * KI * KI;
-
-    let size = size as f64;
-
-    if size >= GI {
-        format!("{:.1} GiB", size / GI)
-    } else if size >= MI {
-        format!("{:.1} MiB", size / MI)
-    } else if size >= KI {
-        format!("{:.1} KiB", size / KI)
-    } else {
-        format!("{size:3} B")
-    }
+pub fn new_packages() -> SystemPackages {
+    SystemPackages::from_parts(
+        get_package_dir().map(FsPackages::new),
+        get_package_cache_dir().map(FsPackages::new),
+        UniversePackages::new(new_downloader()),
+    )
 }
