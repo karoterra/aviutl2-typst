@@ -46,7 +46,7 @@ sed -i "s/^version = .*/version = \"{{ usage.target }}\"/" aviutl2.toml
 
 au2 release
 
-git add Cargo.toml Cargo.lock aviutl2.toml
+git add Cargo.toml Cargo.lock aviutl2.toml NOTICE.html
 git diff --cached
 
 read -r -p "Commit and tag v{{ usage.target }}? [y/N] " answer
