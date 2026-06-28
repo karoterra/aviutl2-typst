@@ -75,6 +75,20 @@ Typst のソースコードファイル `.typ` を描画します。
 
 ファイルを参照（`.typ` ファイルのインポート/インクルード、 `image` で画像を読み込むなど）する場合はメディアオブジェクに設定した `.typ` ファイルからの相対パスを指定してください。
 
+### 利用可能なフォント
+
+以下のフォントが利用可能です。
+- システムにインストールされているフォント
+- Typst 組み込みフォント
+- AviUtl2 フォントファイルフォルダにあるフォント
+
+### パッケージ
+
+[Typst Universe][typst-universe-url] のパッケージをインポートして利用することができます。
+パッケージは自動的にダウンロードされ、 `{プラグインフォルダ}\Karoterra.Typst\package_cache\` にキャッシュとして保存されます。
+
+ローカルパッケージを利用する場合は `{プラグインフォルダ}\Karoterra.Typst\package\{namespace}\{name}\{version}` に配置してください。
+Typst CLI のローカルパッケージディレクトリとは別に管理されます。
 
 ## ライセンス
 
@@ -94,4 +108,5 @@ Typst のソースコードファイル `.typ` を描画します。
 [catalog-badge]: https://aviutl2-catalog-badge.sevenc7c.workers.dev/badge/v/Karoterra.Typst
 [aviutl-url]: https://spring-fragrance.mints.ne.jp/aviutl/
 [typst-url]: https://typst.app/
+[typst-universe-url]: https://typst.app/universe
 [aviutl2-catalog-url]: https://github.com/Neosku/aviutl2-catalog
