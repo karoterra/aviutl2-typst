@@ -2,58 +2,53 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Mutex, RwLock};
 
 use aviutl2::{anyhow, filter::RgbaPixel, tracing};
-use chrono::{DateTime, Datelike, FixedOffset, Local, Utc};
 use codespan_reporting::diagnostic::{Diagnostic, Label};
-use typst::ecow::eco_format;
-use typst::syntax::VirtualPath;
 use typst::{
     Library, LibraryExt, World, WorldExt,
     diag::{FileResult, Severity, SourceDiagnostic, Warned},
-    foundations::{Bytes, Datetime},
-    layout::{Page, PagedDocument},
-    syntax::{FileId, Lines, Source, Span},
+    foundations::{Bytes, Datetime, Duration},
+    syntax::{FileId, Lines, Source, VirtualRoot},
     text::{Font, FontBook},
-    utils::LazyHash,
+    utils::{LazyHash, Scalar},
 };
-use typst_kit::fonts::{FontSlot, Fonts};
-use typst_kit::package::PackageStorage;
+use typst_kit::datetime::Time;
+use typst_kit::files::FileStore;
+use typst_kit::fonts::FontStore;
+use typst_kit::packages::SystemPackages;
+use typst_layout::{Page, PagedDocument};
+use typst_render::RenderOptions;
 
-use crate::typst_file::FileStore;
-use crate::typst_package::new_storage;
+use crate::typst_file::{FAKE_MAIN_ID, TypstFileLoader};
+use crate::typst_package::new_packages;
 
 type CodespanError = codespan_reporting::files::Error;
 type CodespanResult<T> = Result<T, CodespanError>;
-
-static FAKE_MAIN_PATH: &str = "<text>";
 
 pub static TYPST_ENGINE: LazyLock<RwLock<TypstEngine>> =
     LazyLock::new(|| RwLock::new(TypstEngine::new()));
 
 pub struct TypstEngine {
     library: LazyHash<Library>,
-    book: LazyHash<FontBook>,
-    fonts: Vec<FontSlot>,
+    fonts: FontStore,
     project_dir: Option<PathBuf>,
-    package_storage: Arc<Mutex<PackageStorage>>,
+    packages: Arc<Mutex<SystemPackages>>,
 }
 
 impl TypstEngine {
     fn new() -> Self {
         let library = Library::default();
 
-        let fonts = Fonts::searcher()
-            .include_system_fonts(true)
-            .include_embedded_fonts(true)
-            .search();
+        let mut fonts = FontStore::new();
+        fonts.extend(typst_kit::fonts::system());
+        fonts.extend(typst_kit::fonts::embedded());
 
-        let package_storage = Arc::new(Mutex::new(new_storage()));
+        let packages = Arc::new(Mutex::new(new_packages()));
 
         Self {
             library: LazyHash::new(library),
-            book: LazyHash::new(fonts.book),
-            fonts: fonts.fonts,
+            fonts,
             project_dir: None,
-            package_storage,
+            packages,
         }
     }
 
@@ -62,24 +57,15 @@ impl TypstEngine {
     }
 
     pub fn compile_text(&self, source: &str) -> anyhow::Result<PagedDocument> {
-        let vpath = VirtualPath::new(FAKE_MAIN_PATH);
-        let id = FileId::new_fake(vpath);
-        let main = Source::new(id, source.to_string());
-        let world = self.create_world(main, self.project_dir.clone());
+        let loader =
+            TypstFileLoader::from_text(source, self.project_dir.clone(), self.packages.clone());
+        let world = self.create_world(loader);
         self.compile(&world)
     }
 
     pub fn compile_file(&self, path: &Path) -> anyhow::Result<PagedDocument> {
-        let source = std::fs::read_to_string(path)?;
-        let root = path
-            .parent()
-            .map(PathBuf::from)
-            .ok_or(anyhow::anyhow!("Failed to resolve parent dir: {path:?}"))?;
-        let vpath = VirtualPath::within_root(path, &root)
-            .ok_or(anyhow::anyhow!("Failed to resolve parent dir: {path:?}"))?;
-        let id = FileId::new_fake(vpath);
-        let main = Source::new(id, source);
-        let world = self.create_world(main, Some(root));
+        let loader = TypstFileLoader::from_file(path, self.packages.clone())?;
+        let world = self.create_world(loader);
         self.compile(&world)
     }
 
@@ -100,23 +86,21 @@ impl TypstEngine {
         }
     }
 
-    fn create_world(&self, main: Source, root: Option<PathBuf>) -> TypstWorld<'_> {
+    fn create_world(&self, loader: TypstFileLoader) -> TypstWorld<'_> {
         TypstWorld {
             library: &self.library,
-            book: &self.book,
             fonts: &self.fonts,
-            now: Utc::now(),
-            file_store: FileStore::new(main, root, self.package_storage.clone()),
+            now: Time::system(),
+            files: FileStore::new(loader),
         }
     }
 }
 
 struct TypstWorld<'a> {
     library: &'a LazyHash<Library>,
-    book: &'a LazyHash<FontBook>,
-    fonts: &'a [FontSlot],
-    now: DateTime<Utc>,
-    file_store: FileStore,
+    fonts: &'a FontStore,
+    now: Time,
+    files: FileStore<TypstFileLoader>,
 }
 
 impl World for TypstWorld<'_> {
@@ -125,41 +109,29 @@ impl World for TypstWorld<'_> {
     }
 
     fn book(&self) -> &LazyHash<FontBook> {
-        self.book
+        self.fonts.book()
     }
 
     fn main(&self) -> FileId {
-        self.file_store.main()
+        self.files.loader().main()
     }
 
     fn source(&self, id: FileId) -> FileResult<Source> {
         tracing::debug!("Loading source: {:?}", id);
-        self.file_store.source(id)
+        self.files.source(id)
     }
 
     fn file(&self, id: FileId) -> FileResult<Bytes> {
         tracing::debug!("Loading file: {:?}", id);
-        self.file_store.file(id)
+        self.files.file(id)
     }
 
     fn font(&self, index: usize) -> Option<Font> {
-        self.fonts.get(index)?.get()
+        self.fonts.font(index)
     }
 
-    fn today(&self, offset: Option<i64>) -> Option<Datetime> {
-        let now = match offset {
-            Some(hour) => {
-                let seconds = i32::try_from(hour).ok()?.checked_mul(3600)?;
-                self.now.with_timezone(&FixedOffset::east_opt(seconds)?)
-            }
-            None => self.now.with_timezone(&Local).fixed_offset(),
-        };
-
-        Datetime::from_ymd(
-            now.year(),
-            now.month().try_into().ok()?,
-            now.day().try_into().ok()?,
-        )
+    fn today(&self, offset: Option<Duration>) -> Option<Datetime> {
+        self.now.today(offset)
     }
 }
 
@@ -170,25 +142,29 @@ impl<'a> codespan_reporting::files::Files<'a> for TypstWorld<'_> {
 
     fn name(&'a self, id: Self::FileId) -> CodespanResult<Self::Name> {
         let vpath = id.vpath();
-        let name = if let Some(package) = id.package() {
-            format!("{package}{}", vpath.as_rooted_path().display())
-        } else if vpath.as_rootless_path() == FAKE_MAIN_PATH {
-            FAKE_MAIN_PATH.into()
-        } else if let Some(root) = self.file_store.root().as_deref() {
-            vpath
-                .resolve(root)
-                .as_deref()
-                .unwrap_or_else(|| vpath.as_rootless_path())
-                .to_string_lossy()
-                .into()
-        } else {
-            vpath.as_rootless_path().to_string_lossy().into()
+        let name = match id.root() {
+            VirtualRoot::Project => {
+                if id == *FAKE_MAIN_ID {
+                    "<text>".to_string()
+                } else if let Some(root) = self.files.loader().project() {
+                    vpath
+                        .realize(root.path())
+                        .ok()
+                        .map(|path| path.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| vpath.get_without_slash().to_string())
+                } else {
+                    vpath.get_without_slash().to_string()
+                }
+            }
+            VirtualRoot::Package(package) => {
+                format!("{package}{}", vpath.get_with_slash())
+            }
         };
         Ok(name)
     }
 
     fn source(&'a self, id: Self::FileId) -> CodespanResult<Self::Source> {
-        self.file_store
+        self.files
             .source(id)
             .map(|src| src.lines().clone())
             .map_err(|_| CodespanError::FileMissing)
@@ -196,7 +172,7 @@ impl<'a> codespan_reporting::files::Files<'a> for TypstWorld<'_> {
 
     fn line_index(&'a self, id: Self::FileId, byte_index: usize) -> CodespanResult<usize> {
         let lines = self
-            .file_store
+            .files
             .source(id)
             .map(|src| src.lines().clone())
             .map_err(|_| CodespanError::FileMissing)?;
@@ -215,7 +191,7 @@ impl<'a> codespan_reporting::files::Files<'a> for TypstWorld<'_> {
         line_index: usize,
     ) -> CodespanResult<std::ops::Range<usize>> {
         let lines = self
-            .file_store
+            .files
             .source(id)
             .map(|src| src.lines().clone())
             .map_err(|_| CodespanError::FileMissing)?;
@@ -249,10 +225,26 @@ fn print_diagnostics(
             diagnostic
                 .hints
                 .iter()
-                .map(|e| eco_format!("hint: {e}").into())
+                .filter(|s| s.span.is_detached())
+                .map(|s| format!("hint: {}", s.v))
                 .collect(),
         )
-        .with_labels(label(world, diagnostic.span).into_iter().collect());
+        .with_labels(
+            diagnostic
+                .span
+                .id()
+                .and_then(|id| {
+                    let range = world.range(diagnostic.span)?;
+                    Some(Label::primary(id, range))
+                })
+                .into_iter()
+                .chain(diagnostic.hints.iter().filter_map(|hint| {
+                    let id = hint.span.id()?;
+                    let range = world.range(hint.span)?;
+                    Some(Label::secondary(id, range).with_message(&hint.v))
+                }))
+                .collect(),
+        );
 
         let mut writer = match diagnostic.severity {
             Severity::Error => aviutl2::logger::LockedInternalWriter::error(),
@@ -264,10 +256,6 @@ fn print_diagnostics(
     Ok(())
 }
 
-fn label(world: &TypstWorld, span: Span) -> Option<Label<FileId>> {
-    Some(Label::primary(span.id()?, world.range(span)?))
-}
-
 pub struct RenderedImage {
     pub width: u32,
     pub height: u32,
@@ -275,8 +263,12 @@ pub struct RenderedImage {
 }
 
 impl RenderedImage {
-    pub fn render(page: &Page, pixel_per_pt: f32) -> Self {
-        let image = typst_render::render(page, pixel_per_pt);
+    pub fn render(page: &Page, pixel_per_pt: f64) -> Self {
+        let opts = RenderOptions {
+            pixel_per_pt: Scalar::new(pixel_per_pt),
+            render_bleed: false,
+        };
+        let image = typst_render::render(page, &opts);
         let data = image
             .pixels()
             .iter()

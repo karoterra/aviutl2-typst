@@ -39,14 +39,14 @@ struct TypstTextConfig {
     #[select(name = "単位", items = PageSizeUnit, default = PageSizeUnit::Px)]
     unit: PageSizeUnit,
     #[track(name = "スケール", range = 1..=10, default = 1, step = 0.01)]
-    ppt: f32,
+    ppt: f64,
     #[text(name = "テキスト")]
     text: String,
 }
 
 pub type TextRenderCacheKey = i64; // ObjectInfo.effect_id
 pub struct TextRenderCacheValue {
-    ppt: f32,
+    ppt: f64,
     text: String,
     image: RenderedImage,
 }
@@ -82,7 +82,6 @@ impl aviutl2::filter::FilterPlugin for TypstTextPlugin {
     ) -> AnyResult<()> {
         let config = config.to_struct::<TypstTextConfig>();
 
-        let ppt = config.ppt as f64;
         let header = match config.unit {
             PageSizeUnit::Mm => format!(
                 "#set page(width: {}mm, height: {}mm)",
@@ -102,8 +101,8 @@ impl aviutl2::filter::FilterPlugin for TypstTextPlugin {
             ),
             PageSizeUnit::Px => format!(
                 "#set page(width: {}pt, height: {}pt)",
-                config.width / ppt,
-                config.height / ppt
+                config.width / config.ppt,
+                config.height / config.ppt
             ),
         };
 
@@ -129,15 +128,15 @@ impl aviutl2::filter::FilterPlugin for TypstTextPlugin {
     }
 }
 
-fn compile_and_render(text: &str, pixel_per_pt: f32) -> AnyResult<TextRenderCacheValue> {
+fn compile_and_render(text: &str, pixel_per_pt: f64) -> AnyResult<TextRenderCacheValue> {
     let engine = TYPST_ENGINE.read().unwrap();
     let doc = engine.compile_text(text)?;
-    if doc.pages.is_empty() {
+    if doc.pages().is_empty() {
         comemo::evict(0);
         anyhow::bail!("Compiled Typst document has no pages");
     }
 
-    let page = doc.pages.first().unwrap();
+    let page = doc.pages().first().unwrap();
     let image = RenderedImage::render(page, pixel_per_pt);
     Ok(TextRenderCacheValue {
         ppt: pixel_per_pt,
