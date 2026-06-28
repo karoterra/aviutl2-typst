@@ -69,7 +69,7 @@ impl aviutl2::filter::FilterPlugin for TypstTextPlugin {
             ),
             flags: aviutl2::bitflag!(aviutl2::filter::FilterPluginFlags {
                 video: true,
-                as_object: true,
+                input: true,
             }),
             config_items: TypstTextConfig::to_config_items(),
         }
