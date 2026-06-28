@@ -42,3 +42,7 @@ pub fn get_package_cache_dir() -> Option<PathBuf> {
         .as_ref()
         .map(|dll_dir| dll_dir.join("package_cache"))
 }
+
+pub fn get_aviutl2_font_dir() -> PathBuf {
+    aviutl2::config::app_data_path().join("Font")
+}

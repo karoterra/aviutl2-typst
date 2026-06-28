@@ -18,6 +18,7 @@ use typst_kit::packages::SystemPackages;
 use typst_layout::{Page, PagedDocument};
 use typst_render::RenderOptions;
 
+use crate::path::get_aviutl2_font_dir;
 use crate::typst_file::{FAKE_MAIN_ID, TypstFileLoader};
 use crate::typst_package::new_packages;
 
@@ -41,6 +42,7 @@ impl TypstEngine {
         let mut fonts = FontStore::new();
         fonts.extend(typst_kit::fonts::system());
         fonts.extend(typst_kit::fonts::embedded());
+        fonts.extend(typst_kit::fonts::scan(&get_aviutl2_font_dir()));
 
         let packages = Arc::new(Mutex::new(new_packages()));
 
