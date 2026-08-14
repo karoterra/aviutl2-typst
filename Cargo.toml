@@ -11,15 +11,15 @@ crate-type = ["cdylib"]
 [dependencies]
 aviutl2 = "0.34.0"
 codespan-reporting = "0.13.1"
-lru = "0.18.0"
-rustc-hash = "2.1.2"
-typst = "=0.15.0"
-typst-layout = "=0.15.0"
-typst-render = "=0.15.0"
+lru = "0.18.2"
+rustc-hash = "2.1.3"
+typst = "=0.15.1"
+typst-layout = "=0.15.1"
+typst-render = "=0.15.1"
 windows = { version = "0.62.2", features = ["Win32", "Win32_System_LibraryLoader"] }
 
 [dependencies.typst-kit]
-version = "=0.15.0"
+version = "=0.15.1"
 features = [
     "embedded-fonts",
     "scan-fonts",
