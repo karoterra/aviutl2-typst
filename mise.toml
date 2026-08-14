@@ -29,35 +29,78 @@ run = "{{ vars.notice_cmd }}"
 
 [tasks.release-prepare]
 description = "Prepare release"
-shell = "bash"
+shell = "pwsh -NoProfile -Command"
 usage = '''
 arg "<target>" help="Target version"
 '''
 run = '''
-#!/usr/bin/env bash
-set -euo pipefail
+$ErrorActionPreference = "Stop"
+$targetVersion = "{{ usage.target }}"
 
-echo "Prepare release for v{{ usage.target }}"
+Write-Output "Prepare release for v$targetVersion"
 
-cargo set-version {{ usage.target }}
-sed -i "s/^version = .*/version = \"{{ usage.target }}\"/" aviutl2.toml
+cargo set-version $targetVersion
+if ($LASTEXITCODE -ne 0) {
+    throw "cargo set-version failed with exit code $LASTEXITCODE"
+}
+
+$aviutl2ConfigPath = Join-Path $PWD "aviutl2.toml"
+$aviutl2Config = [System.IO.File]::ReadAllText($aviutl2ConfigPath)
+$versionPattern = [regex]::new('(?m)^version = .*$')
+$versionMatches = $versionPattern.Matches($aviutl2Config)
+if ($versionMatches.Count -ne 1) {
+    throw "Expected exactly one version entry in aviutl2.toml, found $($versionMatches.Count)"
+}
+$updatedAviutl2Config = $versionPattern.Replace(
+    $aviutl2Config,
+    "version = `"$targetVersion`"",
+    1
+)
+if ($updatedAviutl2Config -ne $aviutl2Config) {
+    [System.IO.File]::WriteAllText(
+        $aviutl2ConfigPath,
+        $updatedAviutl2Config,
+        [System.Text.UTF8Encoding]::new($false)
+    )
+}
 
 {{ vars.notice_cmd }}
+if ($LASTEXITCODE -ne 0) {
+    throw "NOTICE generation failed with exit code $LASTEXITCODE"
+}
 
 au2 release
+if ($LASTEXITCODE -ne 0) {
+    throw "au2 release failed with exit code $LASTEXITCODE"
+}
 
 git add Cargo.toml Cargo.lock aviutl2.toml NOTICE.html
+if ($LASTEXITCODE -ne 0) {
+    throw "git add failed with exit code $LASTEXITCODE"
+}
+
 git diff --cached
+if ($LASTEXITCODE -ne 0) {
+    throw "git diff --cached failed with exit code $LASTEXITCODE"
+}
 
-read -r -p "Commit and tag v{{ usage.target }}? [y/N] " answer
-case "$answer" in
-    [yY]) ;;
-    *) echo "Canceled"; exit 1 ;;
-esac
+$answer = Read-Host "Commit and tag v$targetVersion? [y/N]"
+if ($answer -notmatch '^[yY]$') {
+    Write-Output "Canceled"
+    exit 1
+}
 
-git commit -m ":bookmark: v{{ usage.target }}"
-git tag -a "v{{ usage.target }}" -m "version {{ usage.target }}"
-echo "and then..."
-echo "\$ git push origin main"
-echo "\$ git push origin v{{ usage.target }}"
+git commit -m ":bookmark: v$targetVersion"
+if ($LASTEXITCODE -ne 0) {
+    throw "git commit failed with exit code $LASTEXITCODE"
+}
+
+git tag -a "v$targetVersion" -m "version $targetVersion"
+if ($LASTEXITCODE -ne 0) {
+    throw "git tag failed with exit code $LASTEXITCODE"
+}
+
+Write-Output "and then..."
+Write-Output "`$ git push origin main"
+Write-Output "`$ git push origin v$targetVersion"
 '''
