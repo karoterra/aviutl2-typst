@@ -55,6 +55,8 @@ pub static TEXT_RENDER_CACHE: LazyLock<Mutex<LruCache<TextRenderCacheKey, TextRe
     LazyLock::new(|| Mutex::new(LruCache::new(NonZeroUsize::new(4).unwrap())));
 
 impl aviutl2::filter::FilterPlugin for TypstTextPlugin {
+    type Userdata = ();
+
     fn new(_info: aviutl2::common::AviUtl2Info) -> AnyResult<Self> {
         Ok(Self {})
     }
@@ -78,7 +80,7 @@ impl aviutl2::filter::FilterPlugin for TypstTextPlugin {
     fn proc_video(
         &self,
         config: &[aviutl2::filter::FilterConfigItem],
-        video: &mut aviutl2::filter::FilterProcVideo,
+        video: &mut aviutl2::filter::FilterProcVideo<Self::Userdata>,
     ) -> AnyResult<()> {
         let config = config.to_struct::<TypstTextConfig>();
 

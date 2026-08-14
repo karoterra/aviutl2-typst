@@ -9,7 +9,8 @@
 
 ## 動作環境
 
-AviUtl2 ExEdit2 version 2.0beta43b にて動作確認しました。
+AviUtl ExEdit2 version 2.1.4 以降が必要です。
+AviUtl ExEdit2 version 2.1.4 にて動作確認しました。
 
 
 ## 導入方法

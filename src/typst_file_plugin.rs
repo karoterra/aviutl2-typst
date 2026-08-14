@@ -59,6 +59,8 @@ pub static FILE_PLUGIN_CACHE: LazyLock<Mutex<FilePluginCache>> = LazyLock::new(|
 });
 
 impl aviutl2::filter::FilterPlugin for TypstFilePlugin {
+    type Userdata = ();
+
     fn new(_info: aviutl2::common::AviUtl2Info) -> AnyResult<Self> {
         Ok(Self {})
     }
@@ -82,7 +84,7 @@ impl aviutl2::filter::FilterPlugin for TypstFilePlugin {
     fn proc_video(
         &self,
         config: &[aviutl2::filter::FilterConfigItem],
-        video: &mut aviutl2::filter::FilterProcVideo,
+        video: &mut aviutl2::filter::FilterProcVideo<Self::Userdata>,
     ) -> AnyResult<()> {
         let config = config.to_struct::<TypstFileConfig>();
         match config.file.filter(|p| !p.as_os_str().is_empty()) {

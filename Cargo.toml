@@ -9,7 +9,7 @@ name = "typst_kr"
 crate-type = ["cdylib"]
 
 [dependencies]
-aviutl2 = "0.34.0"
+aviutl2 = "0.43.0"
 codespan-reporting = "0.13.1"
 lru = "0.18.2"
 rustc-hash = "2.1.3"
